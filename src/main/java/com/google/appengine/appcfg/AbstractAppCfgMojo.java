@@ -47,11 +47,13 @@ public abstract class AbstractAppCfgMojo extends AbstractMojo implements Context
 
   /**
    * Plexus container, needed to manually lookup components.
-   * 
+   *
    * To be able to use Password Encryption
    * http://maven.apache.org/guides/mini/guide-encryption.html
    */
   protected PlexusContainer container;
+
+  private static final String USER_AGENT_KEY = "appengine.useragent";
 
   /**
    * The entry point to Aether, i.e. the component doing all the work.
@@ -71,7 +73,7 @@ public abstract class AbstractAppCfgMojo extends AbstractMojo implements Context
 
   /**
    * The Maven settings reference.
-   * 
+   *
    * @parameter expression="${settings}"
    * @required
    * @readonly
@@ -106,9 +108,9 @@ public abstract class AbstractAppCfgMojo extends AbstractMojo implements Context
   /**
    * The server id in maven settings.xml to use for emailAccount(username) and
    * password when connecting to GAE.
-   * 
+   *
    * If password present in settings "--passin" is set automatically.
-   * 
+   *
    * @parameter expression="${gae.serverId}"
    */
   protected String serverId;
@@ -287,6 +289,13 @@ public abstract class AbstractAppCfgMojo extends AbstractMojo implements Context
    */
   protected String instance;
 
+  /**
+  * Additional parameters to pass through to AppCfg.
+  *
+  * @parameter expression="${appengine.additionalParams}"
+  */
+  protected String[] additionalParams;
+
   @Override
   public void contextualize(final Context context) throws ContextException {
     container = (PlexusContainer) context.get(PlexusConstants.PLEXUS_KEY);
@@ -391,6 +400,14 @@ public abstract class AbstractAppCfgMojo extends AbstractMojo implements Context
       arguments.add("--enable_jar_classes");
     }
 
+    if (additionalParams != null) {
+      for (String param : additionalParams) {
+        if (param != null && !param.isEmpty()) {
+          arguments.add(param);
+        }
+      }
+    }
+
     return arguments;
   }
 
@@ -451,7 +468,7 @@ public abstract class AbstractAppCfgMojo extends AbstractMojo implements Context
 
         try (PipedInputStream inReplace = new PipedInputStream(); OutputStream stdin = new PipedOutputStream(inReplace); ) {
           System.setIn(inReplace);
-          
+
 
           System.setOut(new PrintStream(new PasswordExpectOutputStream(threads, outOrig, new Runnable() {
             @Override
