@@ -57,10 +57,6 @@
             <name>Sonatype Google Releases</name>
             <url>https://oss.sonatype.org/service/local/repositories/google-releases/content</url>
         </repository>
-      <repository>
-      <id>gae-staging</id>
-      <url>https://oss.sonatype.org/content/repositories/comgoogleappengine-1308/</url>
-    </repository>
     </repositories>
 
     <distributionManagement>
