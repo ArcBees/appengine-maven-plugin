@@ -3,20 +3,6 @@
  */
 package com.google.appengine.appcfg;
 
-import static org.codehaus.plexus.util.StringUtils.isNotEmpty;
-
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.io.OutputStreamWriter;
-import java.io.PipedInputStream;
-import java.io.PipedOutputStream;
-import java.io.PrintStream;
-import java.lang.reflect.Method;
-import java.util.ArrayList;
-import java.util.List;
 import com.google.appengine.SdkResolver;
 import com.google.appengine.tools.admin.AppCfg;
 import com.google.appengine.tools.admin.Application;
@@ -40,9 +26,20 @@ import org.eclipse.aether.RepositorySystem;
 import org.eclipse.aether.RepositorySystemSession;
 import org.eclipse.aether.repository.RemoteRepository;
 
-import com.google.appengine.SdkResolver;
-import com.google.appengine.tools.admin.AppCfg;
-import com.google.common.base.Joiner;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.io.PipedInputStream;
+import java.io.PipedOutputStream;
+import java.io.PrintStream;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.codehaus.plexus.util.StringUtils.isNotEmpty;
 
 /**
  * Abstract class for supporting appcfg commands.
@@ -298,10 +295,10 @@ public abstract class AbstractAppCfgMojo extends AbstractMojo implements Context
   protected String instance;
 
   /**
-  * Additional parameters to pass through to AppCfg.
-  *
-  * @parameter expression="${appengine.additionalParams}"
-  */
+   * Additional parameters to pass through to AppCfg.
+   *
+   * @parameter expression="${appengine.additionalParams}"
+   */
   protected String[] additionalParams;
 
   @Override
@@ -309,27 +306,56 @@ public abstract class AbstractAppCfgMojo extends AbstractMojo implements Context
     container = (PlexusContainer) context.get(PlexusConstants.PLEXUS_KEY);
   }
 
-  protected ArrayList<String> collectParameters() throws MojoExecutionException {
-      String userDefinedAppId = null;
-      String userDefinedVersion = null;
-      boolean isEAR = false;
-      String appDir = project.getBuild().getDirectory()
-              + "/"
-              + project.getBuild().getFinalName();
-      File f = new File(appDir, "WEB-INF/appengine-web.xml");
-      if (f.exists()) {
-          AppEngineWebXmlReader aewebReader = new AppEngineWebXmlReader(appDir);
-          AppEngineWebXml appEngineWebXml = aewebReader.readAppEngineWebXml();
-          userDefinedAppId = appEngineWebXml.getAppId();
-          userDefinedVersion = appEngineWebXml.getMajorVersionId();
-      } else if (EarHelper.isEar(appDir, false)) {
-          EarInfo earInfo = EarHelper.readEarInfo(appDir,
-                  new File(Application.getSdkDocsDir(), "appengine-application.xsd"));
-          userDefinedAppId = earInfo.getAppengineApplicationXml().getApplicationId();
-          isEAR = true;
-      }
+  protected void executeAppCfgCommand(String action, String appDir)
+      throws MojoExecutionException {
+    ArrayList<String> arguments = collectParameters();
 
-      // For appcfg user agent metric.
+    arguments.add(action);
+    arguments.add(appDir);
+    getLog().info("Running " + Joiner.on(" ").join(arguments));
+
+    try {
+      AppCfg.main(arguments.toArray(new String[arguments.size()]));
+    } catch (Exception ex) {
+      throw new MojoExecutionException("Error executing appcfg command=" + arguments, ex);
+    }
+  }
+
+  protected void executeAppCfgBackendsCommand(String action, String appDir)
+      throws MojoExecutionException {
+    ArrayList<String> arguments = collectParameters();
+
+    arguments.add("backends");
+    arguments.add(action);
+    arguments.add(appDir);
+    arguments.add(backendName);
+    try {
+      AppCfg.main(arguments.toArray(new String[arguments.size()]));
+    } catch (Exception ex) {
+      throw new MojoExecutionException("Error executing appcfg command=" + arguments, ex);
+    }
+  }
+
+  protected ArrayList<String> collectParameters() throws MojoExecutionException {
+    String userDefinedAppId = null;
+    String userDefinedVersion = null;
+    boolean isEAR = false;
+    String appDir = project.getBuild().getDirectory()
+                    + "/"
+                    + project.getBuild().getFinalName();
+    File f = new File(appDir, "WEB-INF/appengine-web.xml");
+    if (f.exists()) {
+      AppEngineWebXmlReader aewebReader = new AppEngineWebXmlReader(appDir);
+      AppEngineWebXml appEngineWebXml = aewebReader.readAppEngineWebXml();
+      userDefinedAppId = appEngineWebXml.getAppId();
+      userDefinedVersion = appEngineWebXml.getMajorVersionId();
+    } else if (EarHelper.isEar(appDir, false)) {
+      EarInfo earInfo = EarHelper.readEarInfo(appDir, new File(Application.getSdkDocsDir(), "appengine-application.xsd"));
+      userDefinedAppId = earInfo.getAppengineApplicationXml().getApplicationId();
+      isEAR = true;
+    }
+
+    // For appcfg user agent metric.
     System.setProperty(USER_AGENT_KEY, "appengine-maven-plugin");
     ArrayList<String> arguments = new ArrayList<>();
 
@@ -379,9 +405,7 @@ public abstract class AbstractAppCfgMojo extends AbstractMojo implements Context
       arguments.add("-A");
       arguments.add(userDefinedAppId);
     } else {
-      throw new MojoExecutionException(
-              "No <application> defined in appengine-web.xml, nor <appId>"
-              + " <configuration> defined in the pom.xml.");
+      throw new MojoExecutionException("No <application> defined in appengine-web.xml, nor <appId>" + " <configuration> defined in the pom.xml.");
     }
 
     if (version != null && !version.isEmpty()) {
@@ -394,9 +418,7 @@ public abstract class AbstractAppCfgMojo extends AbstractMojo implements Context
     } else {
       if (!isEAR) {
         // EAR structure would need to define versions per service/module...
-        throw new MojoExecutionException(
-                "No <version> defined in appengine-web.xml, nor <version>"
-                + " <configuration> defined in the pom.xml.");
+        throw new MojoExecutionException("No <version> defined in appengine-web.xml, nor <version>" + " <configuration> defined in the pom.xml.");
       }
     }
 
@@ -459,50 +481,15 @@ public abstract class AbstractAppCfgMojo extends AbstractMojo implements Context
     return arguments;
   }
 
-  private void validateAppIdOrVersion(String value)
-          throws MojoExecutionException {
+  private void validateAppIdOrVersion(String value) throws MojoExecutionException {
     boolean hasUppercase = !value.equals(value.toLowerCase());
     if (hasUppercase) {
-      throw new MojoExecutionException(
-              "\nError: App Engine Application Id or version cannot contain uppercase: " + value);
+      throw new MojoExecutionException("\nError: App Engine Application Id or version cannot contain uppercase: " + value);
     }
     if (value.contains(".")) {
-      throw new MojoExecutionException(
-              "\nError: App Engine Application Id or version cannot contain dot: " + value);
+      throw new MojoExecutionException("\nError: App Engine Application Id or version cannot contain dot: " + value);
     }
   }
-
-    protected void executeAppCfgCommand(String action, String appDir)
-            throws MojoExecutionException {
-        ArrayList<String> arguments = collectParameters();
-
-        arguments.add(action);
-        arguments.add(appDir);
-        getLog().info("Running " + Joiner.on(" ").join(arguments));
-
-        try {
-            AppCfg.main(arguments.toArray(new String[arguments.size()]));
-        } catch (Exception ex) {
-            throw new MojoExecutionException("Error executing appcfg command="
-                    + arguments, ex);
-        }
-    }
-
-    protected void executeAppCfgBackendsCommand(String action, String appDir)
-            throws MojoExecutionException {
-        ArrayList<String> arguments = collectParameters();
-
-        arguments.add("backends");
-        arguments.add(action);
-        arguments.add(appDir);
-        arguments.add(backendName);
-        try {
-            AppCfg.main(arguments.toArray(new String[arguments.size()]));
-        } catch (Exception ex) {
-            throw new MojoExecutionException("Error executing appcfg command="
-                    + arguments, ex);
-        }
-    }
 
   protected void resolveAndSetSdkRoot() throws MojoExecutionException {
     File sdkBaseDir = SdkResolver.getSdk(project, repoSystem, repoSession, pluginRepos, projectRepos);
@@ -541,14 +528,13 @@ public abstract class AbstractAppCfgMojo extends AbstractMojo implements Context
         final PrintStream outOrig = System.out;
         final InputStream inOrig = System.in;
 
-        try (PipedInputStream inReplace = new PipedInputStream(); OutputStream stdin = new PipedOutputStream(inReplace); ) {
+        try (PipedInputStream inReplace = new PipedInputStream(); OutputStream stdin = new PipedOutputStream(inReplace);) {
           System.setIn(inReplace);
-
 
           System.setOut(new PrintStream(new PasswordExpectOutputStream(threads, outOrig, new Runnable() {
             @Override
             public void run() {
-              try (BufferedWriter stdinWriter = new BufferedWriter(new OutputStreamWriter(stdin))){
+              try (BufferedWriter stdinWriter = new BufferedWriter(new OutputStreamWriter(stdin))) {
                 stdinWriter.write(password);
                 stdinWriter.newLine();
                 stdinWriter.flush();
