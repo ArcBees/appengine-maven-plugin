@@ -17,6 +17,14 @@ import java.io.PrintStream;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import com.google.appengine.SdkResolver;
+import com.google.appengine.tools.admin.AppCfg;
+import com.google.appengine.tools.admin.Application;
+import com.google.apphosting.utils.config.AppEngineWebXml;
+import com.google.apphosting.utils.config.AppEngineWebXmlReader;
+import com.google.apphosting.utils.config.EarHelper;
+import com.google.apphosting.utils.config.EarInfo;
+import com.google.common.base.Joiner;
 
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -301,8 +309,29 @@ public abstract class AbstractAppCfgMojo extends AbstractMojo implements Context
     container = (PlexusContainer) context.get(PlexusConstants.PLEXUS_KEY);
   }
 
-  protected List<String> collectParameters() {
-    List<String> arguments = new ArrayList<String>();
+  protected ArrayList<String> collectParameters() throws MojoExecutionException {
+      String userDefinedAppId = null;
+      String userDefinedVersion = null;
+      boolean isEAR = false;
+      String appDir = project.getBuild().getDirectory()
+              + "/"
+              + project.getBuild().getFinalName();
+      File f = new File(appDir, "WEB-INF/appengine-web.xml");
+      if (f.exists()) {
+          AppEngineWebXmlReader aewebReader = new AppEngineWebXmlReader(appDir);
+          AppEngineWebXml appEngineWebXml = aewebReader.readAppEngineWebXml();
+          userDefinedAppId = appEngineWebXml.getAppId();
+          userDefinedVersion = appEngineWebXml.getMajorVersionId();
+      } else if (EarHelper.isEar(appDir, false)) {
+          EarInfo earInfo = EarHelper.readEarInfo(appDir,
+                  new File(Application.getSdkDocsDir(), "appengine-application.xsd"));
+          userDefinedAppId = earInfo.getAppengineApplicationXml().getApplicationId();
+          isEAR = true;
+      }
+
+      // For appcfg user agent metric.
+    System.setProperty(USER_AGENT_KEY, "appengine-maven-plugin");
+    ArrayList<String> arguments = new ArrayList<>();
 
     if (server != null && !server.isEmpty()) {
       arguments.add("-s");
@@ -343,13 +372,32 @@ public abstract class AbstractAppCfgMojo extends AbstractMojo implements Context
     }
 
     if (appId != null && !appId.isEmpty()) {
+      userDefinedAppId = appId;
+    }
+    if (userDefinedAppId != null) {
+      validateAppIdOrVersion(userDefinedAppId);
       arguments.add("-A");
-      arguments.add(appId);
+      arguments.add(userDefinedAppId);
+    } else {
+      throw new MojoExecutionException(
+              "No <application> defined in appengine-web.xml, nor <appId>"
+              + " <configuration> defined in the pom.xml.");
     }
 
     if (version != null && !version.isEmpty()) {
+      userDefinedVersion = version;
+    }
+    if (userDefinedVersion != null) {
+      validateAppIdOrVersion(userDefinedVersion);
       arguments.add("-V");
-      arguments.add(version);
+      arguments.add(userDefinedVersion);
+    } else {
+      if (!isEAR) {
+        // EAR structure would need to define versions per service/module...
+        throw new MojoExecutionException(
+                "No <version> defined in appengine-web.xml, nor <version>"
+                + " <configuration> defined in the pom.xml.");
+      }
     }
 
     if (oauth2 && getServerSettings() == null) {
@@ -411,23 +459,50 @@ public abstract class AbstractAppCfgMojo extends AbstractMojo implements Context
     return arguments;
   }
 
-  protected void executeAppCfgCommand(String action, String appDir) throws MojoExecutionException {
-    List<String> arguments = collectParameters();
-
-    arguments.add(action);
-    arguments.add(appDir);
-    executeAppCfg(arguments);
+  private void validateAppIdOrVersion(String value)
+          throws MojoExecutionException {
+    boolean hasUppercase = !value.equals(value.toLowerCase());
+    if (hasUppercase) {
+      throw new MojoExecutionException(
+              "\nError: App Engine Application Id or version cannot contain uppercase: " + value);
+    }
+    if (value.contains(".")) {
+      throw new MojoExecutionException(
+              "\nError: App Engine Application Id or version cannot contain dot: " + value);
+    }
   }
 
-  protected void executeAppCfgBackendsCommand(String action, String appDir) throws MojoExecutionException {
-    List<String> arguments = collectParameters();
+    protected void executeAppCfgCommand(String action, String appDir)
+            throws MojoExecutionException {
+        ArrayList<String> arguments = collectParameters();
 
-    arguments.add("backends");
-    arguments.add(action);
-    arguments.add(appDir);
-    arguments.add(backendName);
-    executeAppCfg(arguments);
-  }
+        arguments.add(action);
+        arguments.add(appDir);
+        getLog().info("Running " + Joiner.on(" ").join(arguments));
+
+        try {
+            AppCfg.main(arguments.toArray(new String[arguments.size()]));
+        } catch (Exception ex) {
+            throw new MojoExecutionException("Error executing appcfg command="
+                    + arguments, ex);
+        }
+    }
+
+    protected void executeAppCfgBackendsCommand(String action, String appDir)
+            throws MojoExecutionException {
+        ArrayList<String> arguments = collectParameters();
+
+        arguments.add("backends");
+        arguments.add(action);
+        arguments.add(appDir);
+        arguments.add(backendName);
+        try {
+            AppCfg.main(arguments.toArray(new String[arguments.size()]));
+        } catch (Exception ex) {
+            throw new MojoExecutionException("Error executing appcfg command="
+                    + arguments, ex);
+        }
+    }
 
   protected void resolveAndSetSdkRoot() throws MojoExecutionException {
     File sdkBaseDir = SdkResolver.getSdk(project, repoSystem, repoSession, pluginRepos, projectRepos);
